@@ -14,7 +14,7 @@ class AgentManager {
   private messageProcessingInterval: NodeJS.Timeout | null = null;
 
   async initializeAgents(): Promise<void> {
-    console.log('🤖 Initializing agents with ZendFi session keys...');
+    console.log('Initializing agents with ZendFi session keys...');
 
     // Create session keys for both agents
     const sessionKeys = await initializeAgentSessionKeys();
@@ -44,7 +44,7 @@ class AgentManager {
     // Start message processing
     this.startMessageProcessing();
 
-    console.log('✅ Both agents initialized and ready!');
+    console.log('Both agents initialized and ready!');
   }
 
   private startMessageProcessing(): void {

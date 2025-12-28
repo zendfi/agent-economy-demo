@@ -18,37 +18,46 @@ interface SessionKeySetup {
 const DEMO_PIN = '123456';
 
 /**
- * Sign delegation message using Solana wallet
+ * Sign delegation message using session keypair (not main wallet!)
+ * The backend verifies the signature against the session wallet's public key
  */
-async function signDelegationMessage(message: string): Promise<string> {
+async function signDelegationMessageWithSessionKey(
+  zendfi: any,
+  sessionKeyId: string,
+  message: string,
+  pin: string
+): Promise<string> {
   try {
-    // Import Solana web3.js and bs58
-    const { Keypair } = await import('@solana/web3.js');
-    const bs58 = await import('bs58');
     const nacl = await import('tweetnacl');
     
-    // Get private key from env
-    const privateKeyBase58 = process.env.USER_MAIN_WALLET_PRIVATE_KEY;
-    if (!privateKeyBase58) {
-      console.warn('⚠️ No private key found, cannot sign delegation message');
-      return 'mock_delegation_signature_' + Date.now();
+    // Unlock the session key to get the keypair
+    await zendfi.sessionKeys.unlock(sessionKeyId, pin);
+    
+    // Get the session key instance (stored internally by SDK)
+    const sessionKeyMap = (zendfi.sessionKeys as any).sessionKeys;
+    const sessionKey = sessionKeyMap.get(sessionKeyId);
+    
+    if (!sessionKey) {
+      throw new Error('Session key not found after unlock');
     }
-
-    // Decode private key
-    const privateKeyBytes = bs58.default.decode(privateKeyBase58);
-    const keypair = Keypair.fromSecretKey(privateKeyBytes);
-
-    // Sign the message
+    
+    // Get the decrypted keypair from cache
+    const keypair = (sessionKey as any).cachedKeypair;
+    if (!keypair) {
+      throw new Error('Session key not unlocked - no cached keypair');
+    }
+    
+    // Sign the message with the session keypair
     const messageBytes = new TextEncoder().encode(message);
     const signature = nacl.default.sign.detached(messageBytes, keypair.secretKey);
     
-    // Return base64 encoded signature (API expects base64, not base58)
+    // Return base64 encoded signature
     const signatureBase64 = Buffer.from(signature).toString('base64');
-    console.log('  ✓ Delegation message signed');
+    console.log('  ✓ Delegation message signed with session keypair');
     return signatureBase64;
   } catch (error: any) {
     console.error(`  ❌ Failed to sign delegation message: ${error.message}`);
-    return 'mock_delegation_signature_' + Date.now();
+    throw error;
   }
 }
 
@@ -63,7 +72,7 @@ export async function createAgentSessionKey(
   const zendfi = getZendFiClient();
   const userWallet = process.env.USER_MAIN_WALLET || 'demo-wallet-address';
 
-  console.log(`\n🔧 Creating device-bound session key for ${agentName}...`);
+  console.log(`\nCreating device-bound session key for ${agentName}...`);
 
   try {
     // Create device-bound session key using new SDK API
@@ -87,23 +96,36 @@ export async function createAgentSessionKey(
     console.log(`  ✓ Status: ${status.isActive ? 'Active' : 'Inactive'}, Balance: $${status.remainingUsdc}`);
 
     // Enable autonomous mode
-    console.log(`  ⏳ Enabling autonomous delegate...`);
+    console.log(`  Enabling autonomous delegate...`);
+    
+    // CRITICAL: Use the SAME expires_at in both message and request!
+    // The backend reconstructs the delegation message for verification
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    
     const delegationMsg = zendfi.autonomy.createDelegationMessage(
       sessionKey.sessionKeyId,
       limitUsdc,
-      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      expiresAt
     );
     
-    console.log(`  📝 Delegation message: ${delegationMsg}`);
-    console.log(`  🔑 Signing with wallet: ${userWallet}`);
+    console.log(`  Delegation message: ${delegationMsg}`);
+    console.log(`  Signing with SESSION KEYPAIR (not main wallet)`);
     
-    const delegationSig = await signDelegationMessage(delegationMsg);
-    console.log(`  ✅ Signature (base64): ${delegationSig.slice(0, 20)}...`);
+    // IMPORTANT: Sign with session keypair, not main wallet!
+    // The backend verifies against the session wallet's public key
+    const delegationSig = await signDelegationMessageWithSessionKey(
+      zendfi,
+      sessionKey.sessionKeyId,
+      delegationMsg,
+      DEMO_PIN
+    );
+    console.log(`  Signature (base64): ${delegationSig.slice(0, 20)}...`);
 
     const delegate = await zendfi.autonomy.enable(sessionKey.sessionKeyId, {
       max_amount_usd: limitUsdc,
       duration_hours: 24,
       delegation_signature: delegationSig,
+      expires_at: expiresAt, // Pass the SAME expires_at!
     });
 
     console.log(`  ✓ Autonomous delegate enabled: ${delegate.delegate_id}`);
@@ -134,21 +156,21 @@ export async function initializeAgentSessionKeys(): Promise<{
   buyer: SessionKeySetup;
   seller: SessionKeySetup;
 }> {
-  console.log('🚀 Initializing agent session keys...');
+  console.log('Initializing agent session keys...');
 
   const buyer = await createAgentSessionKey(
-    'buyer-agent-demo-v4',
-    'Token Buyer Agent V4',
+    'buyer-agent-demo-v5.3',
+    'Token Buyer Agent V5.3',
     0.1
   );
 
   const seller = await createAgentSessionKey(
-    'seller-agent-demo-v4',
-    'GPT-4 Token Provider V4',
+    'seller-agent-demo-v5.3',
+    'GPT-4 Token Provider V5.3',
     0.05
   );
 
-  console.log('✅ All session keys initialized!\n');
+  console.log('All session keys initialized!\n');
 
   return { buyer, seller };
 }

@@ -129,7 +129,7 @@ export class SellerAgent {
         timestamp: new Date(),
         agent_id: this.agentId,
         type: 'message',
-        message: `⚠️ Could not verify payment: ${error.message}`,
+        message: `Could not verify payment: ${error.message}`,
       });
     }
 
@@ -138,7 +138,7 @@ export class SellerAgent {
       timestamp: new Date(),
       agent_id: this.agentId,
       type: 'message',
-      message: `⚠️ Buyer has 24hr to dispute if not satisfied.`,
+      message: `Buyer has 24hr to dispute if not satisfied.`,
     });
 
     // Simulate delivery
@@ -155,7 +155,7 @@ export class SellerAgent {
       timestamp: new Date(),
       agent_id: this.agentId,
       type: 'message',
-      message: `✅ Delivered ${payment.quantity} tokens`,
+      message: `Delivered ${payment.quantity} tokens`,
     });
 
     // Notify buyer
