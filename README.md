@@ -1,13 +1,14 @@
 # Autonomous Agent Economy - POC Demo
 
-**Real AI agents transacting autonomously using ZendFi SDK**
+**Real AI agents transacting autonomously using ZendFi SDK v0.7.4+ with Lit Protocol**
 
 This demo shows two AI agents (buyer & seller) conducting fully autonomous transactions without human intervention after initial setup.
 
 ## What This Demo Shows
 
-- **Session Keys**: Pre-funded Solana wallets for each agent
-- **Autonomous Delegates**: Agents can spend without user signature per transaction
+- **Device-Bound Session Keys**: Non-custodial session keys encrypted with PIN + Lit Protocol
+- **Lit Protocol Integration**: Enables true autonomous signing when client is offline
+- **Autonomous Delegates**: AI agents can sign transactions without user approval
 - **Smart Payments**: Intelligent payment routing via ZendFi SDK
 - **Real Blockchain**: Actual USDC transfers on Solana (test mode)
 

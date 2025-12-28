@@ -20,6 +20,8 @@ const DEMO_PIN = '123456';
 /**
  * Sign delegation message using session keypair (not main wallet!)
  * The backend verifies the signature against the session wallet's public key
+ * 
+ * IMPORTANT: Uses SDK v0.7.4+ with Lit Protocol encryption support
  */
 async function signDelegationMessageWithSessionKey(
   zendfi: any,
@@ -31,6 +33,7 @@ async function signDelegationMessageWithSessionKey(
     const nacl = await import('tweetnacl');
     
     // Unlock the session key to get the keypair
+    // SDK v0.7.4+ supports Lit Protocol encrypted session keys
     await zendfi.sessionKeys.unlock(sessionKeyId, pin);
     
     // Get the session key instance (stored internally by SDK)
@@ -41,10 +44,11 @@ async function signDelegationMessageWithSessionKey(
       throw new Error('Session key not found after unlock');
     }
     
-    // Get the decrypted keypair from cache
-    const keypair = (sessionKey as any).cachedKeypair;
+    // Get the keypair using the SDK's API
+    // This works whether the key is PIN-encrypted or Lit-encrypted
+    const keypair = await sessionKey.getKeypair();
     if (!keypair) {
-      throw new Error('Session key not unlocked - no cached keypair');
+      throw new Error('Session key not unlocked - no keypair available');
     }
     
     // Sign the message with the session keypair
@@ -75,21 +79,24 @@ export async function createAgentSessionKey(
   console.log(`\nCreating device-bound session key for ${agentName}...`);
 
   try {
-    // Create device-bound session key using new SDK API
-    // The SDK handles keypair generation and PIN encryption internally
+    // Create device-bound session key using SDK v0.7.4+
+    // SDK now supports Lit Protocol encryption by default (enableLitProtocol: true)
+    // This enables TRUE autonomous signing (AI agent can sign when client offline)
     const sessionKey = await zendfi.sessionKeys.create({
       userWallet,
       agentId,
       agentName,
       limitUSDC: limitUsdc,
       durationDays: 7,
-      pin: DEMO_PIN, // SDK encrypts keypair with this PIN
+      pin: DEMO_PIN, // SDK encrypts keypair with PIN (local) + Lit Protocol (backend)
       generateRecoveryQR: false, // Not needed for demo
+      enableLitProtocol: true, // ✅ Enable Lit Protocol for autonomous signing (default)
     });
 
     console.log(`  ✓ Session key created: ${sessionKey.sessionKeyId}`);
     console.log(`  ✓ Session wallet: ${sessionKey.sessionWallet}`);
     console.log(`  ✓ Cross-app compatible: ${sessionKey.crossAppCompatible}`);
+    console.log(`  ✓ Lit Protocol encryption: Enabled ✨ (for autonomous signing)`);
 
     // Get session key status
     const status = await zendfi.sessionKeys.getStatus(sessionKey.sessionKeyId);
@@ -129,6 +136,7 @@ export async function createAgentSessionKey(
     });
 
     console.log(`  ✓ Autonomous delegate enabled: ${delegate.delegate_id}`);
+    console.log(`  ✓ Backend can now sign when client offline (via Lit Protocol)`);
     console.log(`  ✓ ${agentName} ready! ($${limitUsdc} budget)\n`);
 
     return {
@@ -159,14 +167,14 @@ export async function initializeAgentSessionKeys(): Promise<{
   console.log('Initializing agent session keys...');
 
   const buyer = await createAgentSessionKey(
-    'buyer-agent-demo-v5.3',
-    'Token Buyer Agent V5.3',
+    'buyer-agent-demo-v5.6',
+    'Token Buyer Agent V5.6',
     0.1
   );
 
   const seller = await createAgentSessionKey(
-    'seller-agent-demo-v5.3',
-    'GPT-4 Token Provider V5.3',
+    'seller-agent-demo-v5.6',
+    'GPT-4 Token Provider V5.6',
     0.05
   );
 
