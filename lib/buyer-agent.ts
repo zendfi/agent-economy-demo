@@ -1,26 +1,34 @@
 /**
  * Buyer Agent - Purchases services from other agents
+ * Uses ZendFi SDK for real payments
  */
 
 import { AgentMessageLite, AgentProfileLite } from './types';
 import { agentStore } from './store';
+import { getZendFiClient } from './zendfi-client';
 
 export class BuyerAgent {
   private agentId: string;
   private agentName: string;
   private webhookUrl: string;
+  private sessionKeyId: string;
   private sessionWallet: string;
+  private isAutonomous: boolean;
 
   constructor(config: {
     agentId: string;
     agentName: string;
     webhookUrl: string;
+    sessionKeyId: string;
     sessionWallet: string;
+    isAutonomous: boolean;
   }) {
     this.agentId = config.agentId;
     this.agentName = config.agentName;
     this.webhookUrl = config.webhookUrl;
+    this.sessionKeyId = config.sessionKeyId;
     this.sessionWallet = config.sessionWallet;
+    this.isAutonomous = config.isAutonomous;
   }
 
   async initialize(): Promise<void> {
@@ -31,7 +39,9 @@ export class BuyerAgent {
       webhook_url: this.webhookUrl,
       services: [], // Buyer doesn't provide services
       fixed_pricing: {},
+      session_key_id: this.sessionKeyId,
       session_wallet: this.sessionWallet,
+      is_autonomous: this.isAutonomous,
       is_online: true,
     });
 
@@ -40,7 +50,8 @@ export class BuyerAgent {
       timestamp: new Date(),
       agent_id: this.agentId,
       type: 'message',
-      message: `${this.agentName} initialized and online`,
+      message: `${this.agentName} initialized with session key ${this.sessionKeyId}`,
+      data: { session_wallet: this.sessionWallet, is_autonomous: this.isAutonomous },
     });
   }
 
@@ -112,6 +123,7 @@ export class BuyerAgent {
 
   private async handleQuote(message: AgentMessageLite): Promise<void> {
     const quote = message.payload;
+    const zendfi = getZendFiClient();
     
     agentStore.addLog({
       id: crypto.randomUUID(),
@@ -121,43 +133,88 @@ export class BuyerAgent {
       message: `Quote received: $${quote.price} for ${quote.quantity} tokens`,
     });
 
-    // Auto-accept quote and pay
-    const payment_id = crypto.randomUUID();
-    const refundable_until = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // Auto-accept quote and pay using ZendFi SDK
+    try {
+      agentStore.addLog({
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        agent_id: this.agentId,
+        type: 'message',
+        message: `Executing payment via ZendFi...`,
+      });
 
-    // Store payment
-    agentStore.storePayment({
-      payment_id,
-      buyer_agent_id: this.agentId,
-      seller_agent_id: message.from_agent_id,
-      amount: quote.price,
-      status: 'pending_delivery',
-      refundable_until,
-      created_at: new Date(),
-    });
+      // Find seller's session wallet
+      const seller = agentStore.getAgent(message.from_agent_id);
+      if (!seller) {
+        throw new Error('Seller agent not found');
+      }
 
-    agentStore.addLog({
-      id: crypto.randomUUID(),
-      timestamp: new Date(),
-      agent_id: this.agentId,
-      type: 'sent',
-      message: `Payment sent: $${quote.price}. Refundable until ${refundable_until.toLocaleString()}`,
-      data: { payment_id, amount: quote.price },
-    });
+      // Execute smart payment from buyer's session wallet to seller's session wallet
+      const payment = await zendfi.smart.execute({
+        agent_id: this.agentId,
+        user_wallet: this.sessionWallet, // Buyer's session wallet
+        amount_usd: quote.price,
+        description: `${quote.quantity} GPT-4 tokens`,
+        metadata: {
+          buyer_agent_id: this.agentId,
+          seller_agent_id: message.from_agent_id,
+          service_type: 'gpt4-tokens',
+          quantity: quote.quantity,
+        },
+      });
 
-    // Notify seller
-    await this.sendMessage({
-      from_agent_id: this.agentId,
-      to_agent_id: message.from_agent_id,
-      type: 'payment_notification',
-      payload: {
-        payment_id,
+      const refundable_until = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      // Store payment
+      agentStore.storePayment({
+        payment_id: payment.payment_id,
+        buyer_agent_id: this.agentId,
+        seller_agent_id: message.from_agent_id,
         amount: quote.price,
-        service_type: 'gpt4-tokens',
-        quantity: quote.quantity,
-        refundable_until: refundable_until.toISOString(),
-      },
-    });
+        status: 'pending_delivery',
+        transaction_signature: payment.transaction_signature,
+        refundable_until,
+        created_at: new Date(),
+      });
+
+      agentStore.addLog({
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        agent_id: this.agentId,
+        type: 'sent',
+        message: `✅ Payment sent: $${quote.price} (TX: ${payment.transaction_signature?.slice(0, 8)}...)`,
+        data: { 
+          payment_id: payment.payment_id,
+          amount: quote.price,
+          signature: payment.transaction_signature,
+          refundable_until: refundable_until.toISOString(),
+        },
+      });
+
+      // Notify seller
+      await this.sendMessage({
+        from_agent_id: this.agentId,
+        to_agent_id: message.from_agent_id,
+        type: 'payment_notification',
+        payload: {
+          payment_id: payment.payment_id,
+          amount: quote.price,
+          service_type: 'gpt4-tokens',
+          quantity: quote.quantity,
+          transaction_signature: payment.transaction_signature,
+          refundable_until: refundable_until.toISOString(),
+        },
+      });
+    } catch (error: any) {
+      agentStore.addLog({
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        agent_id: this.agentId,
+        type: 'message',
+        message: `❌ Payment failed: ${error.message}`,
+        data: { error: error.message },
+      });
+    }
   }
 
   private async handleDelivery(message: AgentMessageLite): Promise<void> {

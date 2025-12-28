@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Autonomous Agent Economy - POC Demo
 
-## Getting Started
+**Real AI agents transacting autonomously using ZendFi SDK**
 
-First, run the development server:
+This demo shows two AI agents (buyer & seller) conducting fully autonomous transactions without human intervention after initial setup.
+
+## What This Demo Shows
+
+- **Session Keys**: Pre-funded Solana wallets for each agent
+- **Autonomous Delegates**: Agents can spend without user signature per transaction
+- **Smart Payments**: Intelligent payment routing via ZendFi SDK
+- **Real Blockchain**: Actual USDC transfers on Solana (test mode)
+
+## Quick Start
 
 ```bash
+# Install
+npm install
+
+# Setup environment
+cp .env.local.example .env.local
+# Edit .env.local with your ZendFi API key
+
+# Run
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 and click "🚀 Initialize Agents"
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Architecture
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Session Keys = Agent Wallets
+
+Each agent has its own **session key wallet** (real Solana address):
+- **Buyer**: $100 budget to purchase services
+- **Seller**: $50 initial to receive payments
+
+```typescript
+// Create session key (generates Solana wallet)
+const key = await zendfi.sessionKeys.create({
+  user_wallet: 'YOUR_WALLET',
+  limit_usdc: 100,
+  duration_days: 7,
+});
+
+// Enable autonomous spending (no signature per transaction!)
+await zendfi.autonomy.enable(key.id, {
+  max_amount_usd: 100,
+  duration_hours: 24,
+});
+```
+
+### Payment Flow
+
+```
+User funds agents (one-time setup)
+         ↓
+Buyer Session Wallet (100 USDC)
+         ↓ smart payment
+Seller Session Wallet (receives 10 USDC)
+         ↓
+Check balance via SDK
+```
+
+## Key Files
+
+- `lib/zendfi-client.ts` - SDK singleton
+- `lib/session-key-setup.ts` - Creates session keys
+- `lib/buyer-agent.ts` - Makes autonomous payments
+- `lib/seller-agent.ts` - Receives payments
+- `lib/agent-manager.ts` - Coordinates agents
+
+## SDK Integration
+
+### Payment Execution
+```typescript
+const payment = await zendfi.smart.execute({
+  agent_id: 'buyer-agent',
+  user_wallet: sessionWallet,
+  amount_usd: 10,
+  description: '1000 GPT-4 tokens',
+});
+```
+
+### Balance Check
+```typescript
+const status = await zendfi.sessionKeys.getStatus(sessionKeyId);
+console.log(`Balance: $${status.remaining_usdc}`);
+```
+
+## Environment Variables
+
+```bash
+ZENDFI_API_KEY=your_test_api_key_here  # Get from zendfi.com
+ZENDFI_MODE=test                        # test or live
+USER_MAIN_WALLET=your_wallet_address    # Funds session keys
+```
+
+## Testing
+
+This runs in **test mode** (Solana devnet):
+- No real money
+- Mock transaction signing
+- Full SDK functionality
 
 ## Learn More
 
-To learn more about Next.js, take a look at the following resources:
+- [Full Architecture Doc](../docs/AUTONOMOUS_AGENTIC_ECONOMY.md)
+- [ZendFi SDK](../zendfi-toolkit/packages/sdk/)
+- [ZendFi Website](https://zendfi.com)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## License
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT

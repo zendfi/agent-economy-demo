@@ -1,6 +1,9 @@
 /**
  * Agent Economy Demo - Type Definitions
+ * Integrated with ZendFi SDK
  */
+
+import type { SessionKeyStatus } from '@zendfi/sdk';
 
 export interface AgentMessageLite {
   type: 'service_request' | 'quote' | 'payment_notification' | 'delivery_confirmation';
@@ -18,7 +21,12 @@ export interface AgentProfileLite {
   webhook_url: string;
   services: string[];
   fixed_pricing: Record<string, number>;
-  session_wallet: string;
+  
+  // ZendFi Session Key Integration
+  session_key_id: string; // UUID from ZendFi
+  session_wallet: string; // Solana address of session wallet
+  is_autonomous: boolean; // Whether autonomous delegate is enabled
+  
   is_online: boolean;
 }
 
@@ -31,11 +39,12 @@ export interface A2APaymentRequestLite {
 }
 
 export interface PaymentWithRefundWindow {
-  payment_id: string;
+  payment_id: string; // ZendFi payment ID
   buyer_agent_id: string;
   seller_agent_id: string;
   amount: number;
   status: 'pending_delivery' | 'completed' | 'disputed' | 'refunded';
+  transaction_signature?: string; // Solana transaction signature
   refundable_until: Date;
   delivery_confirmed_at?: Date;
   created_at: Date;

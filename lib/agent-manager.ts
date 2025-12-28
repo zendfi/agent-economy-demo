@@ -1,10 +1,12 @@
 /**
  * Agent Manager - Coordinates agents and message delivery
+ * Uses ZendFi SDK for session key management
  */
 
 import { BuyerAgent } from './buyer-agent';
 import { SellerAgent } from './seller-agent';
 import { agentStore } from './store';
+import { initializeAgentSessionKeys } from './session-key-setup';
 
 class AgentManager {
   private buyerAgent: BuyerAgent | null = null;
@@ -12,12 +14,19 @@ class AgentManager {
   private messageProcessingInterval: NodeJS.Timeout | null = null;
 
   async initializeAgents(): Promise<void> {
+    console.log('🤖 Initializing agents with ZendFi session keys...');
+
+    // Create session keys for both agents
+    const sessionKeys = await initializeAgentSessionKeys();
+
     // Initialize Buyer Agent
     this.buyerAgent = new BuyerAgent({
       agentId: 'buyer-agent-demo',
       agentName: 'Demo Buyer Agent',
       webhookUrl: '/api/webhook/buyer',
-      sessionWallet: 'BuyerWallet' + Math.random().toString(36).substring(7),
+      sessionKeyId: sessionKeys.buyer.sessionKeyId,
+      sessionWallet: sessionKeys.buyer.sessionWallet,
+      isAutonomous: sessionKeys.buyer.isAutonomous,
     });
     await this.buyerAgent.initialize();
 
@@ -26,12 +35,16 @@ class AgentManager {
       agentId: 'seller-agent-demo',
       agentName: 'Demo GPT-4 Provider',
       webhookUrl: '/api/webhook/seller',
-      sessionWallet: 'SellerWallet' + Math.random().toString(36).substring(7),
+      sessionKeyId: sessionKeys.seller.sessionKeyId,
+      sessionWallet: sessionKeys.seller.sessionWallet,
+      isAutonomous: sessionKeys.seller.isAutonomous,
     });
     await this.sellerAgent.initialize();
 
     // Start message processing
     this.startMessageProcessing();
+
+    console.log('✅ Both agents initialized and ready!');
   }
 
   private startMessageProcessing(): void {
