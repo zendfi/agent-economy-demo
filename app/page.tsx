@@ -7,7 +7,8 @@ export default function Home() {
   const [logs, setLogs] = useState<TransactionLog[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [tokenCount, setTokenCount] = useState(1000);
+  // Default: 5 tokens = $0.05 (buyer has $0.1 limit)
+  const [tokenCount, setTokenCount] = useState(5);
 
   useEffect(() => {
     const interval = setInterval(fetchLogs, 1000);
@@ -124,7 +125,7 @@ export default function Home() {
                 <div className="flex gap-4">
                   <div className="flex-1">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Token Count
+                      Token Count (Price: ${(tokenCount * 0.01).toFixed(2)} • Buyer limit: $0.10)
                     </label>
                     <input
                       type="number"
@@ -132,8 +133,12 @@ export default function Home() {
                       onChange={(e) => setTokenCount(Number(e.target.value))}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                       min="1"
-                      max="10000"
+                      max="10"
+                      step="1"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Max 10 tokens ($0.10) - matches buyer session limit
+                    </p>
                   </div>
                   <div className="flex-1 flex items-end">
                     <button
