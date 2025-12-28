@@ -149,30 +149,33 @@ export class BuyerAgent {
         throw new Error('Seller agent not found');
       }
 
-      // Execute smart payment from buyer's session wallet to seller's session wallet
-      const payment = await zendfi.smart.execute({
-        agent_id: this.agentId,
-        user_wallet: this.sessionWallet, // Buyer's session wallet
-        amount_usd: quote.price,
+      // Execute autonomous payment using session key with Lit Protocol
+      // Backend will sign using Lit-encrypted keypair (no user interaction needed!)
+      const payment = await zendfi.sessionKeys.makePayment({
+        sessionKeyId: this.sessionKeyId,
+        amount: quote.price,
+        recipient: seller.session_wallet,
         description: `${quote.quantity} GPT-4 tokens`,
-        metadata: {
-          buyer_agent_id: this.agentId,
-          seller_agent_id: message.from_agent_id,
-          service_type: 'gpt4-tokens',
-          quantity: quote.quantity,
-        },
       });
 
       const refundable_until = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
+      agentStore.addLog({
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        agent_id: this.agentId,
+        type: 'message',
+        message: `🤖 Autonomous signing via Lit Protocol...`,
+      });
+
       // Store payment
       agentStore.storePayment({
-        payment_id: payment.payment_id,
+        payment_id: payment.paymentId,
         buyer_agent_id: this.agentId,
         seller_agent_id: message.from_agent_id,
         amount: quote.price,
         status: 'pending_delivery',
-        transaction_signature: payment.transaction_signature,
+        transaction_signature: payment.signature,
         refundable_until,
         created_at: new Date(),
       });
@@ -182,11 +185,11 @@ export class BuyerAgent {
         timestamp: new Date(),
         agent_id: this.agentId,
         type: 'sent',
-        message: `✅ Payment sent: $${quote.price} (TX: ${payment.transaction_signature?.slice(0, 8)}...)`,
+        message: `✅ Payment sent: $${quote.price} (TX: ${payment.signature?.slice(0, 8)}...)`,
         data: { 
-          payment_id: payment.payment_id,
+          payment_id: payment.paymentId,
           amount: quote.price,
-          signature: payment.transaction_signature,
+          signature: payment.signature,
           refundable_until: refundable_until.toISOString(),
         },
       });
@@ -197,11 +200,11 @@ export class BuyerAgent {
         to_agent_id: message.from_agent_id,
         type: 'payment_notification',
         payload: {
-          payment_id: payment.payment_id,
+          payment_id: payment.paymentId,
           amount: quote.price,
           service_type: 'gpt4-tokens',
           quantity: quote.quantity,
-          transaction_signature: payment.transaction_signature,
+          transaction_signature: payment.signature,
           refundable_until: refundable_until.toISOString(),
         },
       });
