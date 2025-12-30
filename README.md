@@ -1,115 +1,132 @@
-# Autonomous Agent Economy - POC Demo
+# Agent Economy Demo
 
-**Real AI agents transacting autonomously using ZendFi SDK v0.7.4+ with Lit Protocol**
+Two AI agents autonomously buying and selling services using real blockchain payments.
 
-This demo shows two AI agents (buyer & seller) conducting fully autonomous transactions without human intervention after initial setup.
+## What It Does
 
-## What This Demo Shows
+**Buyer Agent** wants 5 GPT-4 tokens.  
+**Seller Agent** provides them for $0.05.  
+They negotiate, pay, and deliver, **completely autonomously**.
 
-- **Device-Bound Session Keys**: Non-custodial session keys encrypted with PIN + Lit Protocol
-- **Lit Protocol Integration**: Enables true autonomous signing when client is offline
-- **Autonomous Delegates**: AI agents can sign transactions without user approval
-- **Smart Payments**: Intelligent payment routing via ZendFi SDK
-- **Real Blockchain**: Actual USDC transfers on Solana (test mode)
+## The Magic
+
+### 1. **Session Wallets** (Real Solana Addresses)
+Each agent gets its own wallet with USDC:
+- Buyer: `0.1 USDC` spending budget
+- Seller: `0.05 USDC` initial balance
+
+### 2. **Gasless Payments** (0 SOL Required)
+Session wallets hold **0 SOL**—backend pays all transaction fees.
+
+### 3. **Autonomous Signing** (Lit Protocol)
+Agents can sign transactions when offline. No human clicks needed.
+
+### 4. **State Machine** (Crash Recovery)
+Every payment tracked through states:
+```
+INITIATED → QUOTE_RECEIVED → PAYMENT_SENT → DELIVERY_PENDING → COMPLETED
+```
+
+### 5. **Idempotency** (No Double-Payments)
+Network retries can't cause duplicate payments—every message processed once.
 
 ## Quick Start
 
 ```bash
-# Install
 npm install
-
-# Setup environment
-cp .env.local.example .env.local
-# Edit .env.local with your ZendFi API key
-
-# Run
 npm run dev
 ```
 
-Open http://localhost:3000 and click "🚀 Initialize Agents"
+Open http://localhost:3000 → Click **"🚀 Initialize Agents"**
+
+## What Happens
+
+1. **Setup** - Create session keys for both agents
+2. **Fund** - Transfer USDC to session wallets (user pays ATA creation fee)
+3. **Negotiate** - Buyer requests quote, seller responds
+4. **Pay** - Buyer sends $0.05 USDC (autonomous, gasless)
+5. **Deliver** - Seller delivers tokens, confirms completion
+
+## The Transaction
+
+```typescript
+// Buyer makes payment (autonomous, no approval needed)
+const payment = await zendfi.sessionKeys.makePayment({
+  sessionKeyId: buyerSessionKey,
+  amount: 0.05,
+  recipient: sellerSessionWallet,
+  description: '5 GPT-4 tokens',
+});
+
+// Backend automatically:
+// Uses gasless transaction (buyer has 0 SOL)
+// Creates seller ATA if needed (backend pays)
+// Buyer session wallet signs to authorize USDC transfer
+// Transaction confirmed in ~500ms
+```
 
 ## Architecture
 
-### Session Keys = Agent Wallets
-
-Each agent has its own **session key wallet** (real Solana address):
-- **Buyer**: $100 budget to purchase services
-- **Seller**: $50 initial to receive payments
-
-```typescript
-// Create session key (generates Solana wallet)
-const key = await zendfi.sessionKeys.create({
-  user_wallet: 'YOUR_WALLET',
-  limit_usdc: 100,
-  duration_days: 7,
-});
-
-// Enable autonomous spending (no signature per transaction!)
-await zendfi.autonomy.enable(key.id, {
-  max_amount_usd: 100,
-  duration_hours: 24,
-});
+```
+┌─────────────────────┐
+│   User Wallet       │  (One-time: Fund session wallets)
+└──────────┬──────────┘
+           │
+     ┌─────┴─────┐
+     ▼           ▼
+┌─────────┐  ┌──────────┐
+│ Buyer   │  │ Seller   │  (Session wallets with 0 SOL)
+│ Session │  │ Session  │
+│ Wallet  │  │ Wallet   │ 
+│ 0.1 USDC│  │ 0.05 USDC│
+└────┬────┘  └────┬─────┘
+     │            ▲
+     │  Payment   │
+     └────────────┘
+         $0.05
+     (Gasless, Autonomous)
 ```
 
-### Payment Flow
+## Key Features
 
-```
-User funds agents (one-time setup)
-         ↓
-Buyer Session Wallet (100 USDC)
-         ↓ smart payment
-Seller Session Wallet (receives 10 USDC)
-         ↓
-Check balance via SDK
-```
+| Feature | How It Works |
+|---------|-------------|
+| **Gasless** | Session wallets have 0 SOL; backend pays all fees |
+| **Autonomous** | Lit Protocol enables offline signing |
+| **Safe** | State machine prevents invalid transitions |
+| **Reliable** | Idempotency prevents duplicate payments |
+| **Real** | Actual Solana transactions on devnet |
 
-## Key Files
+## Files
 
-- `lib/zendfi-client.ts` - SDK singleton
-- `lib/session-key-setup.ts` - Creates session keys
-- `lib/buyer-agent.ts` - Makes autonomous payments
-- `lib/seller-agent.ts` - Receives payments
-- `lib/agent-manager.ts` - Coordinates agents
+- `lib/buyer-agent.ts` - Purchases services autonomously
+- `lib/seller-agent.ts` - Provides services autonomously  
+- `lib/session-key-setup.ts` - Creates & funds session wallets
+- `lib/store.ts` - State machine & payment tracking
+- `lib/types.ts` - Payment states & types
 
-## SDK Integration
-
-### Payment Execution
-```typescript
-const payment = await zendfi.smart.execute({
-  agent_id: 'buyer-agent',
-  user_wallet: sessionWallet,
-  amount_usd: 10,
-  description: '1000 GPT-4 tokens',
-});
-```
-
-### Balance Check
-```typescript
-const status = await zendfi.sessionKeys.getStatus(sessionKeyId);
-console.log(`Balance: $${status.remaining_usdc}`);
-```
-
-## Environment Variables
+## Environment
 
 ```bash
-ZENDFI_API_KEY=your_test_api_key_here  # Get from zendfi.com
-ZENDFI_MODE=test                        # test or live
-USER_MAIN_WALLET=your_wallet_address    # Funds session keys
+ZENDFI_API_KEY=your_api_key
+ZENDFI_MODE=test
+USER_MAIN_WALLET=your_solana_wallet
 ```
 
-## Testing
+## Status
 
-This runs in **test mode** (Solana devnet):
+**Production-Ready Features:**
+- Gasless transactions (session wallets need 0 SOL)
+- Autonomous signing (Lit Protocol integration)
+- Payment state machine (crash recovery)
+- Idempotency protection (no double-payments)
+- Event history (full audit trail)
+
+**Test Mode:**
+- Runs on Solana devnet
 - No real money
-- Mock transaction signing
-- Full SDK functionality
+- Full functionality
 
-## Learn More
+---
 
-- [Full Architecture Doc](../docs/AUTONOMOUS_AGENTIC_ECONOMY.md)
-- [ZendFi SDK](../zendfi-toolkit/packages/sdk/)
-- [ZendFi Website](https://zendfi.com)
-
-## License
-
-MIT
+**Built with [ZendFi SDK](https://github.com/zendfi/zendfi-toolkit/packages/sdk) + [Lit Protocol](https://litprotocol.com)**
