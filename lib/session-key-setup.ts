@@ -21,14 +21,22 @@ interface SessionKeySetup {
 const DEMO_PIN = '123456';
 
 /**
- * Fund session wallet with SOL and USDC for demo purposes
+ * Fund session wallet with USDC for demo purposes
  * This automatically transfers funds from user wallet to session wallet
+ * 
+ * NOTE: Session wallet does NOT need SOL! Backend pays all transaction fees via gasless architecture.
+ * The platform fee payer covers:
+ *  - ATA creation fees
+ *  - Transaction signature fees
+ *  - All SOL-based costs
+ * 
+ * The session wallet only needs USDC for spending balance tracking.
  */
 async function fundSessionWallet(
   sessionWallet: string,
   amountUsdc: number
 ): Promise<void> {
-  console.log(`  Funding session wallet with ${amountUsdc} USDC...`);
+  console.log(`  Funding session wallet with ${amountUsdc} USDC (USDC-only, backend pays SOL fees)...`);
 
   try {
     const userPrivateKey = process.env.USER_MAIN_WALLET_PRIVATE_KEY;
@@ -56,14 +64,7 @@ async function fundSessionWallet(
     console.log(`    • RPC: ${rpcUrl}`);
     console.log(`    • User: ${userKeypair.publicKey.toBase58()}`);
     console.log(`    • Session: ${sessionWallet}`);
-
-    // Transfer SOL for rent + gas (0.01 SOL should be enough)
-    console.log(`    • Transferring 0.01 SOL for gas...`);
-    const solTransferIx = SystemProgram.transfer({
-      fromPubkey: userKeypair.publicKey,
-      toPubkey: sessionPubkey,
-      lamports: 0.01 * 1_000_000_000, // 0.01 SOL in lamports
-    });
+    console.log(`    ℹ Backend gasless mode - NO SOL transfer needed!`);
 
     // Get ATAs
     const userAta = await getAssociatedTokenAddress(usdcMint, userKeypair.publicKey);
@@ -74,12 +75,12 @@ async function fundSessionWallet(
 
     // Check if session ATA exists, create if not
     const sessionAtaInfo = await connection.getAccountInfo(sessionAta);
-    const instructions = [solTransferIx];
+    const instructions = [];
 
     if (!sessionAtaInfo) {
-      console.log(`    • Creating session wallet ATA...`);
+      console.log(`    • Creating session wallet ATA (user pays this one-time fee)...`);
       const createAtaIx = createAssociatedTokenAccountInstruction(
-        userKeypair.publicKey, // payer
+        userKeypair.publicKey, // payer (user pays for ATA creation)
         sessionAta, // ata
         sessionPubkey, // owner
         usdcMint, // mint
@@ -114,8 +115,8 @@ async function fundSessionWallet(
     );
 
     console.log(`  ✓ Session wallet funded successfully!`);
-    console.log(`    • SOL: 0.01 (for gas)`);
-    console.log(`    • USDC: ${amountUsdc}`);
+    console.log(`    • USDC: ${amountUsdc} (session wallet spending balance)`);
+    console.log(`    • SOL: 0 (backend pays all transaction fees via gasless mode)`);
     console.log(`    • Tx: ${signature.slice(0, 20)}...`);
   } catch (error: any) {
     console.error(`  Failed to fund session wallet: ${error.message}`);
@@ -196,7 +197,7 @@ export async function createAgentSessionKey(
       durationDays: 7,
       pin: DEMO_PIN, // SDK encrypts keypair with PIN (local) + Lit Protocol (backend)
       generateRecoveryQR: false, // Not needed for demo
-      enableLitProtocol: true, // ✅ Enable Lit Protocol for autonomous signing (default)
+      enableLitProtocol: true, // Enable Lit Protocol for autonomous signing (default)
     });
 
     console.log(`  ✓ Session key created: ${sessionKey.sessionKeyId}`);
@@ -254,10 +255,10 @@ export async function createAgentSessionKey(
       isAutonomous: true,
     };
   } catch (error: any) {
-    console.error(`  ❌ Failed to create session key: ${error.message}`);
+    console.error(`  Failed to create session key: ${error.message}`);
     
     // For demo purposes, if API fails, return mock data
-    console.log(`  ⚠️ Falling back to mock session key for demo...`);
+    console.log(`  Falling back to mock session key for demo...`);
     return {
       sessionKeyId: `mock_${agentId}_${Date.now()}`,
       sessionWallet: `mock_wallet_${agentId}`,
@@ -276,14 +277,14 @@ export async function initializeAgentSessionKeys(): Promise<{
   console.log('Initializing agent session keys...');
 
   const buyer = await createAgentSessionKey(
-    'buyer-agent-demo-v5.22',
-    'Token Buyer Agent V5.22',
+    'buyer-agent-demo-v6',
+    'Token Buyer Agent V6',
     0.1
   );
 
   const seller = await createAgentSessionKey(
-    'seller-agent-demo-v5.22',
-    'GPT-4 Token Provider V5.22',
+    'seller-agent-demo-v6',
+    'GPT-4 Token Provider V6',
     0.05
   );
 
