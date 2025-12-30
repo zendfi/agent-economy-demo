@@ -3,7 +3,7 @@
  * Uses ZendFi SDK to receive payments
  */
 
-import { AgentMessageLite } from './types';
+import { AgentMessageLite, PaymentStatus } from './types';
 import { agentStore } from './store';
 import { getZendFiClient } from './zendfi-client';
 
@@ -15,6 +15,8 @@ export class SellerAgent {
   private sessionWallet: string;
   private isAutonomous: boolean;
   private fixedPricing: Record<string, number>;
+  
+  private processedMessages = new Set<string>();
 
   constructor(config: {
     agentId: string;
@@ -59,6 +61,20 @@ export class SellerAgent {
   }
 
   async handleMessage(message: AgentMessageLite): Promise<void> {
+    if (this.processedMessages.has(message.message_id)) {
+      agentStore.addLog({
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        agent_id: this.agentId,
+        type: 'message',
+        message: `⚠️  Ignoring duplicate message: ${message.message_id}`,
+        data: { message_id: message.message_id, type: message.type },
+      });
+      return;
+    }
+    
+    this.processedMessages.add(message.message_id);
+    
     agentStore.addLog({
       id: crypto.randomUUID(),
       timestamp: new Date(),
@@ -68,14 +84,27 @@ export class SellerAgent {
       data: message,
     });
 
-    switch (message.type) {
-      case 'service_request':
-        await this.handleServiceRequest(message);
-        break;
+    try {
+      switch (message.type) {
+        case 'service_request':
+          await this.handleServiceRequest(message);
+          break;
 
-      case 'payment_notification':
-        await this.handlePayment(message);
-        break;
+        case 'payment_notification':
+          await this.handlePayment(message);
+          break;
+      }
+    } catch (error: any) {
+      agentStore.addLog({
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        agent_id: this.agentId,
+        type: 'message',
+        message: `Error handling ${message.type}: ${error.message}`,
+        data: { message_id: message.message_id, error: error.message },
+      });
+      this.processedMessages.delete(message.message_id);
+      throw error;
     }
   }
 
@@ -144,11 +173,16 @@ export class SellerAgent {
     // Simulate delivery
     await this.deliverTokens(payment);
 
-    // Confirm delivery
-    agentStore.updatePaymentStatus(payment.payment_id, {
-      status: 'completed',
-      delivery_confirmed_at: new Date(),
-    });
+    // Confirm delivery using state machine
+    agentStore.updatePaymentStatus(
+      payment.payment_id,
+      PaymentStatus.COMPLETED,
+      this.agentId,
+      {
+        delivery_confirmed_at: new Date().toISOString(),
+        tokens_delivered: payment.quantity,
+      }
+    );
 
     agentStore.addLog({
       id: crypto.randomUUID(),

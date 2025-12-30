@@ -4,7 +4,6 @@ import { agentManager } from '@/lib/agent-manager';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    // Default: 5 tokens = $0.05 (fits within buyer's $0.1 session limit)
     const { token_count = 5 } = body;
 
     if (!agentManager.isInitialized()) {

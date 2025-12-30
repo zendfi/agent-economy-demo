@@ -3,13 +3,24 @@
  * (In production, use a real database)
  */
 
-import { AgentProfileLite, AgentMessageLite, PaymentWithRefundWindow, TransactionLog } from './types';
+import { AgentProfileLite, AgentMessageLite, PaymentState, PaymentStatus, PaymentEvent, TransactionLog } from './types';
 
 class AgentStore {
   private agents: Map<string, AgentProfileLite> = new Map();
   private messages: Map<string, AgentMessageLite[]> = new Map();
-  private payments: Map<string, PaymentWithRefundWindow> = new Map();
+  private payments: Map<string, PaymentState> = new Map();
   private logs: TransactionLog[] = [];
+
+  // Valid state transitions for payment state machine
+  private readonly validTransitions: Record<PaymentStatus, PaymentStatus[]> = {
+    [PaymentStatus.INITIATED]: [PaymentStatus.QUOTE_RECEIVED],
+    [PaymentStatus.QUOTE_RECEIVED]: [PaymentStatus.PAYMENT_SENT],
+    [PaymentStatus.PAYMENT_SENT]: [PaymentStatus.DELIVERY_PENDING, PaymentStatus.DISPUTED],
+    [PaymentStatus.DELIVERY_PENDING]: [PaymentStatus.COMPLETED, PaymentStatus.DISPUTED, PaymentStatus.REFUNDED],
+    [PaymentStatus.COMPLETED]: [], // Terminal state
+    [PaymentStatus.DISPUTED]: [PaymentStatus.REFUNDED, PaymentStatus.COMPLETED],
+    [PaymentStatus.REFUNDED]: [], // Terminal state
+  };
 
   // Agent Registry
   registerAgent(profile: AgentProfileLite): void {
@@ -64,29 +75,107 @@ class AgentStore {
     this.messages.set(agent_id, []);
   }
 
-  // Payments
-  storePayment(payment: PaymentWithRefundWindow): void {
+  // Payments with State Machine
+  storePayment(payment: PaymentState): void {
+    // Initialize with first event if events array is empty
+    if (payment.events.length === 0) {
+      payment.events.push({
+        status: payment.status,
+        timestamp: new Date(),
+        actor: payment.buyer_agent_id,
+      });
+    }
+    
     this.payments.set(payment.payment_id, payment);
     this.addLog({
       id: crypto.randomUUID(),
       timestamp: new Date(),
       agent_id: payment.buyer_agent_id,
       type: 'sent',
-      message: `Payment sent: $${payment.amount}`,
+      message: `Payment ${payment.status}: $${payment.amount}`,
       data: payment,
     });
   }
 
-  getPayment(payment_id: string): PaymentWithRefundWindow | undefined {
+  getPayment(payment_id: string): PaymentState | undefined {
     return this.payments.get(payment_id);
   }
 
-  updatePaymentStatus(payment_id: string, updates: Partial<PaymentWithRefundWindow>): void {
+  /**
+   * Update payment status with state machine validation
+   * @throws Error if transition is invalid
+   */
+  updatePaymentStatus(
+    payment_id: string,
+    newStatus: PaymentStatus,
+    actor: string,
+    metadata?: Record<string, any>
+  ): void {
     const payment = this.payments.get(payment_id);
-    if (payment) {
-      Object.assign(payment, updates);
-      this.payments.set(payment_id, payment);
+    if (!payment) {
+      throw new Error(`Payment ${payment_id} not found`);
     }
+
+    // Validate state transition
+    if (!this.isValidTransition(payment.status, newStatus)) {
+      throw new Error(
+        `Invalid state transition: ${payment.status} → ${newStatus}. ` +
+        `Valid transitions from ${payment.status}: ${this.validTransitions[payment.status].join(', ')}`
+      );
+    }
+
+    // Update payment
+    payment.status = newStatus;
+    payment.updated_at = new Date();
+    
+    // Add event to history
+    payment.events.push({
+      status: newStatus,
+      timestamp: new Date(),
+      actor,
+      metadata,
+    });
+
+    this.payments.set(payment_id, payment);
+
+    this.addLog({
+      id: crypto.randomUUID(),
+      timestamp: new Date(),
+      agent_id: actor,
+      type: 'message',
+      message: `Payment ${payment_id} → ${newStatus}`,
+      data: { payment_id, newStatus, actor, metadata },
+    });
+  }
+
+  /**
+   * Check if a state transition is valid
+   */
+  private isValidTransition(currentStatus: PaymentStatus, newStatus: PaymentStatus): boolean {
+    const allowedTransitions = this.validTransitions[currentStatus];
+    return allowedTransitions.includes(newStatus);
+  }
+
+  /**
+   * Get payment event history
+   */
+  getPaymentEvents(payment_id: string): PaymentEvent[] {
+    const payment = this.payments.get(payment_id);
+    return payment?.events || [];
+  }
+
+  /**
+   * Check if payment can be refunded (within refund window)
+   */
+  canRefundPayment(payment_id: string): boolean {
+    const payment = this.payments.get(payment_id);
+    if (!payment) return false;
+    
+    const now = new Date();
+    return (
+      payment.status === PaymentStatus.DELIVERY_PENDING &&
+      now < payment.refundable_until
+    );
   }
 
   // Logs

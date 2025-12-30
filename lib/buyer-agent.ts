@@ -3,7 +3,7 @@
  * Uses ZendFi SDK for real payments
  */
 
-import { AgentMessageLite, AgentProfileLite } from './types';
+import { AgentMessageLite, AgentProfileLite, PaymentStatus } from './types';
 import { agentStore } from './store';
 import { getZendFiClient } from './zendfi-client';
 
@@ -14,6 +14,9 @@ export class BuyerAgent {
   private sessionKeyId: string;
   private sessionWallet: string;
   private isAutonomous: boolean;
+  
+  // Idempotency: Track processed messages to prevent double-payments
+  private processedMessages = new Set<string>();
 
   constructor(config: {
     agentId: string;
@@ -101,6 +104,22 @@ export class BuyerAgent {
   }
 
   async handleMessage(message: AgentMessageLite): Promise<void> {
+    // IDEMPOTENCY CHECK: Prevent duplicate processing
+    if (this.processedMessages.has(message.message_id)) {
+      agentStore.addLog({
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        agent_id: this.agentId,
+        type: 'message',
+        message: `⚠️  Ignoring duplicate message: ${message.message_id}`,
+        data: { message_id: message.message_id, type: message.type },
+      });
+      return;
+    }
+    
+    // Mark as processed FIRST (before any async operations)
+    this.processedMessages.add(message.message_id);
+    
     agentStore.addLog({
       id: crypto.randomUUID(),
       timestamp: new Date(),
@@ -110,14 +129,28 @@ export class BuyerAgent {
       data: message,
     });
 
-    switch (message.type) {
-      case 'quote':
-        await this.handleQuote(message);
-        break;
+    try {
+      switch (message.type) {
+        case 'quote':
+          await this.handleQuote(message);
+          break;
 
-      case 'delivery_confirmation':
-        await this.handleDelivery(message);
-        break;
+        case 'delivery_confirmation':
+          await this.handleDelivery(message);
+          break;
+      }
+    } catch (error: any) {
+      agentStore.addLog({
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        agent_id: this.agentId,
+        type: 'message',
+        message: `❌ Error handling ${message.type}: ${error.message}`,
+        data: { message_id: message.message_id, error: error.message },
+      });
+      // Remove from processed set on error to allow retry
+      this.processedMessages.delete(message.message_id);
+      throw error;
     }
   }
 
@@ -168,17 +201,36 @@ export class BuyerAgent {
         message: `🤖 Autonomous signing via Lit Protocol...`,
       });
 
-      // Store payment
+      // Store payment with state machine
+      const now = new Date();
       agentStore.storePayment({
         payment_id: payment.paymentId,
+        status: PaymentStatus.PAYMENT_SENT,
         buyer_agent_id: this.agentId,
         seller_agent_id: message.from_agent_id,
         amount: quote.price,
-        status: 'pending_delivery',
+        service_type: 'gpt4-tokens',
         transaction_signature: payment.signature,
+        events: [
+          {
+            status: PaymentStatus.PAYMENT_SENT,
+            timestamp: now,
+            actor: this.agentId,
+            metadata: { quantity: quote.quantity },
+          }
+        ],
         refundable_until,
-        created_at: new Date(),
+        created_at: now,
+        updated_at: now,
       });
+      
+      // Update to delivery pending
+      agentStore.updatePaymentStatus(
+        payment.paymentId,
+        PaymentStatus.DELIVERY_PENDING,
+        this.agentId,
+        { awaiting_delivery: true }
+      );
 
       agentStore.addLog({
         id: crypto.randomUUID(),
@@ -214,7 +266,7 @@ export class BuyerAgent {
         timestamp: new Date(),
         agent_id: this.agentId,
         type: 'message',
-        message: `❌ Payment failed: ${error.message}`,
+        message: ` Payment failed: ${error.message}`,
         data: { error: error.message },
       });
     }
@@ -226,7 +278,7 @@ export class BuyerAgent {
       timestamp: new Date(),
       agent_id: this.agentId,
       type: 'message',
-      message: `✅ Tokens delivered! Transaction complete.`,
+      message: `Tokens delivered! Transaction complete.`,
       data: message.payload,
     });
   }

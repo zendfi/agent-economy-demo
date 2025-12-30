@@ -38,17 +38,40 @@ export interface A2APaymentRequestLite {
   description: string;
 }
 
-export interface PaymentWithRefundWindow {
+export enum PaymentStatus {
+  INITIATED = 'initiated',
+  QUOTE_RECEIVED = 'quote_received',
+  PAYMENT_SENT = 'payment_sent',
+  DELIVERY_PENDING = 'delivery_pending',
+  COMPLETED = 'completed',
+  DISPUTED = 'disputed',
+  REFUNDED = 'refunded',
+}
+
+export interface PaymentEvent {
+  status: PaymentStatus;
+  timestamp: Date;
+  actor: string;
+  metadata?: Record<string, any>;
+}
+
+export interface PaymentState {
   payment_id: string; // ZendFi payment ID
+  status: PaymentStatus;
   buyer_agent_id: string;
   seller_agent_id: string;
   amount: number;
-  status: 'pending_delivery' | 'completed' | 'disputed' | 'refunded';
+  service_type: string;
   transaction_signature?: string; // Solana transaction signature
+  events: PaymentEvent[];
   refundable_until: Date;
   delivery_confirmed_at?: Date;
   created_at: Date;
+  updated_at: Date;
 }
+
+// Legacy type alias just here for backward compatibility
+export type PaymentWithRefundWindow = PaymentState;
 
 export interface TransactionLog {
   id: string;

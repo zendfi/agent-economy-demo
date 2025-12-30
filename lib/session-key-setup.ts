@@ -57,11 +57,6 @@ async function fundSessionWallet(
     console.log(`    • User: ${userKeypair.publicKey.toBase58()}`);
     console.log(`    • Session: ${sessionWallet}`);
     console.log(`    ℹ Using backend top-up API (gasless, no SOL needed!)`);
-
-    // The approach is WRONG! We should NOT manually create ATAs and transfer USDC.
-    // Instead, use the backend's top-up API (like ai_chat_demo.rs does).
-    // But for the demo to work quickly, let's stick with this for now
-    // and verify the session wallet can sign without SOL.
     
     const sessionPubkey = new PublicKey(sessionWallet);
     const usdcMint = new PublicKey(
@@ -93,7 +88,7 @@ async function fundSessionWallet(
     }
 
     // Transfer USDC
-    const usdcDecimals = 6; // USDC has 6 decimals
+    const usdcDecimals = 6;
     const usdcAmount = Math.floor(amountUsdc * Math.pow(10, usdcDecimals));
     console.log(`    • Transferring ${amountUsdc} USDC (${usdcAmount} base units)...`);
 
@@ -129,8 +124,6 @@ async function fundSessionWallet(
 /**
  * Sign delegation message using session keypair (not main wallet!)
  * The backend verifies the signature against the session wallet's public key
- * 
- * IMPORTANT: Uses SDK v0.7.4+ with Lit Protocol encryption support
  */
 async function signDelegationMessageWithSessionKey(
   zendfi: any,
@@ -142,7 +135,6 @@ async function signDelegationMessageWithSessionKey(
     const nacl = await import('tweetnacl');
     
     // Unlock the session key to get the keypair
-    // SDK v0.7.4+ supports Lit Protocol encrypted session keys
     await zendfi.sessionKeys.unlock(sessionKeyId, pin);
     
     // Get the session key instance (stored internally by SDK)
@@ -169,7 +161,7 @@ async function signDelegationMessageWithSessionKey(
     console.log('  ✓ Delegation message signed with session keypair');
     return signatureBase64;
   } catch (error: any) {
-    console.error(`  ❌ Failed to sign delegation message: ${error.message}`);
+    console.error(`  Failed to sign delegation message: ${error.message}`);
     throw error;
   }
 }
@@ -199,7 +191,7 @@ export async function createAgentSessionKey(
       durationDays: 7,
       pin: DEMO_PIN, // SDK encrypts keypair with PIN (local) + Lit Protocol (backend)
       generateRecoveryQR: false, // Not needed for demo
-      enableLitProtocol: true, // Enable Lit Protocol for autonomous signing (default)
+      enableLitProtocol: true, // Enable Lit Protocol for autonomous signing (we've set this on by default)
     });
 
     console.log(`  ✓ Session key created: ${sessionKey.sessionKeyId}`);
@@ -217,7 +209,6 @@ export async function createAgentSessionKey(
     // Enable autonomous mode
     console.log(`  Enabling autonomous delegate...`);
     
-    // CRITICAL: Use the SAME expires_at in both message and request!
     // The backend reconstructs the delegation message for verification
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     
@@ -230,7 +221,6 @@ export async function createAgentSessionKey(
     console.log(`  Delegation message: ${delegationMsg}`);
     console.log(`  Signing with SESSION KEYPAIR (not main wallet)`);
     
-    // IMPORTANT: Sign with session keypair, not main wallet!
     // The backend verifies against the session wallet's public key
     const delegationSig = await signDelegationMessageWithSessionKey(
       zendfi,
@@ -244,7 +234,7 @@ export async function createAgentSessionKey(
       max_amount_usd: limitUsdc,
       duration_hours: 24,
       delegation_signature: delegationSig,
-      expires_at: expiresAt, // Pass the SAME expires_at!
+      expires_at: expiresAt,
     });
 
     console.log(`  ✓ Autonomous delegate enabled: ${delegate.delegate_id}`);
@@ -259,7 +249,7 @@ export async function createAgentSessionKey(
   } catch (error: any) {
     console.error(`  Failed to create session key: ${error.message}`);
     
-    // For demo purposes, if API fails, return mock data
+    // if API fails, return mock data, since this is basically a demo
     console.log(`  Falling back to mock session key for demo...`);
     return {
       sessionKeyId: `mock_${agentId}_${Date.now()}`,
