@@ -4,6 +4,9 @@
  */
 
 import { getZendFiClient } from './zendfi-client';
+import { Connection, Keypair, PublicKey, Transaction, SystemProgram, sendAndConfirmTransaction } from '@solana/web3.js';
+import { createTransferInstruction, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import bs58 from 'bs58';
 
 interface SessionKeySetup {
   sessionKeyId: string;
@@ -16,6 +19,109 @@ interface SessionKeySetup {
  * In production, this should be securely provided by the user
  */
 const DEMO_PIN = '123456';
+
+/**
+ * Fund session wallet with SOL and USDC for demo purposes
+ * This automatically transfers funds from user wallet to session wallet
+ */
+async function fundSessionWallet(
+  sessionWallet: string,
+  amountUsdc: number
+): Promise<void> {
+  console.log(`  Funding session wallet with ${amountUsdc} USDC...`);
+
+  try {
+    const userPrivateKey = process.env.USER_MAIN_WALLET_PRIVATE_KEY;
+    if (!userPrivateKey) {
+      throw new Error('USER_MAIN_WALLET_PRIVATE_KEY not found in .env');
+    }
+
+    // Initialize connection and user keypair
+    const mode = process.env.ZENDFI_MODE || 'test';
+    const rpcUrl = mode === 'production' 
+      ? 'https://api.mainnet-beta.solana.com'
+      : 'https://api.devnet.solana.com';
+    
+    const connection = new Connection(rpcUrl, 'confirmed');
+    const userKeypair = Keypair.fromSecretKey(bs58.decode(userPrivateKey));
+    const sessionPubkey = new PublicKey(sessionWallet);
+
+    // USDC mint address (devnet for test mode)
+    const usdcMint = new PublicKey(
+      mode === 'production'
+        ? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' // Mainnet USDC
+        : '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' // Devnet USDC
+    );
+
+    console.log(`    • RPC: ${rpcUrl}`);
+    console.log(`    • User: ${userKeypair.publicKey.toBase58()}`);
+    console.log(`    • Session: ${sessionWallet}`);
+
+    // Transfer SOL for rent + gas (0.01 SOL should be enough)
+    console.log(`    • Transferring 0.01 SOL for gas...`);
+    const solTransferIx = SystemProgram.transfer({
+      fromPubkey: userKeypair.publicKey,
+      toPubkey: sessionPubkey,
+      lamports: 0.01 * 1_000_000_000, // 0.01 SOL in lamports
+    });
+
+    // Get ATAs
+    const userAta = await getAssociatedTokenAddress(usdcMint, userKeypair.publicKey);
+    const sessionAta = await getAssociatedTokenAddress(usdcMint, sessionPubkey);
+
+    console.log(`    • User ATA: ${userAta.toBase58()}`);
+    console.log(`    • Session ATA: ${sessionAta.toBase58()}`);
+
+    // Check if session ATA exists, create if not
+    const sessionAtaInfo = await connection.getAccountInfo(sessionAta);
+    const instructions = [solTransferIx];
+
+    if (!sessionAtaInfo) {
+      console.log(`    • Creating session wallet ATA...`);
+      const createAtaIx = createAssociatedTokenAccountInstruction(
+        userKeypair.publicKey, // payer
+        sessionAta, // ata
+        sessionPubkey, // owner
+        usdcMint, // mint
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      );
+      instructions.push(createAtaIx);
+    }
+
+    // Transfer USDC
+    const usdcDecimals = 6; // USDC has 6 decimals
+    const usdcAmount = Math.floor(amountUsdc * Math.pow(10, usdcDecimals));
+    console.log(`    • Transferring ${amountUsdc} USDC (${usdcAmount} base units)...`);
+
+    const transferIx = createTransferInstruction(
+      userAta,
+      sessionAta,
+      userKeypair.publicKey,
+      usdcAmount,
+      [],
+      TOKEN_PROGRAM_ID
+    );
+    instructions.push(transferIx);
+
+    // Build and send transaction
+    const transaction = new Transaction().add(...instructions);
+    const signature = await sendAndConfirmTransaction(
+      connection,
+      transaction,
+      [userKeypair],
+      { commitment: 'confirmed' }
+    );
+
+    console.log(`  ✓ Session wallet funded successfully!`);
+    console.log(`    • SOL: 0.01 (for gas)`);
+    console.log(`    • USDC: ${amountUsdc}`);
+    console.log(`    • Tx: ${signature.slice(0, 20)}...`);
+  } catch (error: any) {
+    console.error(`  Failed to fund session wallet: ${error.message}`);
+    console.log(`  Continuing without funding - transactions may fail!`);
+  }
+}
 
 /**
  * Sign delegation message using session keypair (not main wallet!)
@@ -102,6 +208,9 @@ export async function createAgentSessionKey(
     const status = await zendfi.sessionKeys.getStatus(sessionKey.sessionKeyId);
     console.log(`  ✓ Status: ${status.isActive ? 'Active' : 'Inactive'}, Balance: $${status.remainingUsdc}`);
 
+    // Auto-fund the session wallet with actual SOL + USDC
+    await fundSessionWallet(sessionKey.sessionWallet, limitUsdc);
+
     // Enable autonomous mode
     console.log(`  Enabling autonomous delegate...`);
     
@@ -167,14 +276,14 @@ export async function initializeAgentSessionKeys(): Promise<{
   console.log('Initializing agent session keys...');
 
   const buyer = await createAgentSessionKey(
-    'buyer-agent-demo-v5.8',
-    'Token Buyer Agent V5.8',
+    'buyer-agent-demo-v5.22',
+    'Token Buyer Agent V5.22',
     0.1
   );
 
   const seller = await createAgentSessionKey(
-    'seller-agent-demo-v5.8',
-    'GPT-4 Token Provider V5.8',
+    'seller-agent-demo-v5.22',
+    'GPT-4 Token Provider V5.22',
     0.05
   );
 
