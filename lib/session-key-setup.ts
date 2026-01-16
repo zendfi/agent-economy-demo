@@ -269,14 +269,14 @@ export async function initializeAgentSessionKeys(): Promise<{
   console.log('Initializing agent session keys...');
 
   const buyer = await createAgentSessionKey(
-    'buyer-agent-demo-v17.7',
-    'Token Buyer Agent V17.7',
+    'buyer-agent-demo-v19',
+    'Token Buyer Agent V19',
     0.1
   );
 
   const seller = await createAgentSessionKey(
-    'seller-agent-demo-v17.7',
-    'GPT-4 Token Provider V17.7',
+    'seller-agent-demo-v19',
+    'GPT-4 Token Provider V19',
     0.05
   );
 
